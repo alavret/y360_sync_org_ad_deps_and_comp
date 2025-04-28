@@ -3,7 +3,6 @@ from dotenv import load_dotenv
 from datetime import datetime
 from ldap3 import Server, Connection, ALL, SUBTREE, ALL_ATTRIBUTES, Tls, MODIFY_REPLACE, set_config_parameter
 from ldap3.core.exceptions import LDAPBindError
-from CycLog import CycleLogger
 from lib.y360_api.api_script import API360
 import logging
 import logging.handlers as handlers
@@ -48,7 +47,7 @@ def get_ldap_users():
         return {}
             
     users = {}
-    conn.search(ldap_base_dn, ldap_search_filter, search_scope=SUBTREE, attributes=attrib_list, get_operational_attributes=True)
+    conn.search(ldap_base_dn, ldap_search_filter, search_scope=SUBTREE, attributes=attrib_list)
     if conn.last_error is not None:
         logger.error(f'Can not connect to LDAP. Exit.')
         logger.error(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
@@ -56,21 +55,22 @@ def get_ldap_users():
 
     try:            
         for item in conn.entries:
-            if len(item['mail'].value.strip()) > 0 and item['mail'].value is not None:
-                department = ''
-                if item['department'].value is not None:
-                    if len(item['department'].value.strip()) > 0:
-                        department = item['department'].value.strip()
-                company = ''
-                if item['company'].value is not None:
-                    if len(item['company'].value.strip()) > 0:
-                        company = item['company'].value.strip()
+            if item['mail'].value is not None:
+                if len(item['mail'].value.strip()) > 0:
+                    department = ''
+                    if item['department'].value is not None:
+                        if len(item['department'].value.strip()) > 0:
+                            department = item['department'].value.strip()
+                    company = ''
+                    if item['company'].value is not None:
+                        if len(item['company'].value.strip()) > 0:
+                            company = item['company'].value.strip()
 
-                if len(department) > 0 and len(company) > 0:
-                    users[item['mail'].value.lower()] = f'{department.strip()} ({company.strip()})'
-                else:
-                    users[item['mail'].value.lower()] = ''
-                    logger.debug(f'User {item["mail"].value} has empty department or company. Skip.')
+                    if len(department) > 0 and len(company) > 0:
+                        users[item['mail'].value.lower().strip()] = f'{department.strip()} ({company.strip()})'
+                    else:
+                        users[item['mail'].value.lower().strip()] = ''
+                        logger.debug(f'User {item["mail"].value} has empty department or company. Skip.')
 
     except Exception as e:
         logger.error(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
@@ -147,7 +147,6 @@ def compare_with_y360():
     online_deps = generate_deps_list_from_api()
     if not online_deps:
         logger.info('List of Y360 departments is empty. Exit.')
-        return
     else:
         logger.info(f'Got list of Y360 departments. Total count: {len(online_deps)}')
 
