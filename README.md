@@ -124,7 +124,7 @@
 
    Установите их с помощью:
    ```bash
-   pip install python-dotenv ldap3 requests
+   pip install python-dotenv ldap3 requests aiohttp
    ```
 
 3. **Настройте окружение**:
