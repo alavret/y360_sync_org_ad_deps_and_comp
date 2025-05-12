@@ -257,7 +257,7 @@ if __name__ == "__main__":
     if os.path.exists(denv_path):
         load_dotenv(dotenv_path=denv_path,verbose=True, override=True)
     
-    organization = API360(os.environ.get('orgId'), os.environ.get('access_token'))
+    organization = API360(os.environ.get('orgId'), os.environ.get('token'))
 
     if not organization.check_connections_for_deps():
         logger.error('\n')
