@@ -27,16 +27,33 @@ class API360:
         self.per_page = 100
         self.temp_password = "00ff00ff00"
 
+    def check_connections_for_deps(self):
+        try:
+            response = requests.get(f"{self.url}/departments", headers=self.headers)
+            if response.status_code != 200:
+                print(f"Error during GET request: {response.status_code}. Error message: {response.text}")
+                return False
+        except Exception as e:
+            print(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
+            return False
+        return True
+
     def get_departments_list(self):
         """
         Чтение всех департаментов предприятия
         """
-        response = requests.get(f"{self.url}/departments", headers=self.headers)
         try:
+            response = requests.get(f"{self.url}/departments", headers=self.headers)
+            if response.status_code != 200:
+                print(f"Error during GET request: {response.status_code}. Error message: {response.text}")
+                return []
             deps = response.json().get("departments")
         except requests.exceptions.JSONDecodeError:
             response = requests.get(f"{self.url}/departments", headers=self.headers)
             deps = response.json().get("departments")
+        except Exception as e:
+            print(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
+            return []
 
         for i in range(2, response.json().get("pages") + 1):
             successful = False

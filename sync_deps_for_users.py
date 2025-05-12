@@ -6,6 +6,7 @@ from ldap3.core.exceptions import LDAPBindError
 from lib.y360_api.api_script import API360
 import logging
 import logging.handlers as handlers
+import sys
 
 LOG_FILE = "sync_deps.log"
 
@@ -105,6 +106,9 @@ def generate_deps_list_from_api():
     if len(all_deps_from_api) == 1:
         #print('There are no departments in organozation! Exit.')
         return {}
+    elif len(all_deps_from_api) == 0:
+        #print('There are no departments in organozation. Exit.')
+        return None
     all_deps = {'1' : 'All'}
     for item in all_deps_from_api:  
         all_deps[item['id']] = item['name'].strip()
@@ -145,6 +149,9 @@ def compare_with_y360():
         logger.info(f'Got list of local departments. Total count: {len(onprem_deps_set)}')
     
     online_deps = generate_deps_list_from_api()
+    if online_deps is None:
+        logger.info('Error while getting list of Y360 departments. Exit.')
+        sys.exit(1)
     if not online_deps:
         logger.info('List of Y360 departments is empty. Exit.')
     else:
@@ -251,6 +258,11 @@ if __name__ == "__main__":
         load_dotenv(dotenv_path=denv_path,verbose=True, override=True)
     
     organization = API360(os.environ.get('orgId'), os.environ.get('access_token'))
+
+    if not organization.check_connections_for_deps():
+        logger.error('\n')
+        logger.error('Connection to Y360 failed. Check token or Org ID parameters. Exit.\n')
+        sys.exit(1)
 
     dry_run = False
     if os.environ.get('DRY_RUN'):
