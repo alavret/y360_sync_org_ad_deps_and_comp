@@ -46,6 +46,9 @@ def get_ldap_users():
         logger.error('Can not connect to LDAP - "automatic bind not successful - invalidCredentials". Exit.')
         logger.error(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
         return {}
+    except Exception as e:
+        logger.error(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
+        return {}
             
     users = {}
     conn.search(ldap_base_dn, ldap_search_filter, search_scope=SUBTREE, attributes=attrib_list)
@@ -68,9 +71,11 @@ def get_ldap_users():
                             company = item['company'].value.strip()
 
                     if len(department) > 0 and len(company) > 0:
-                        users[item['mail'].value.lower().strip()] = f'{department.strip()} ({company.strip()})'
+                        users[item['mail'].value.lower().strip().split('@')[0]] = f'{department.strip()} ({company.strip()})'
+                    elif len(department) > 0:
+                        users[item['mail'].value.lower().strip().split('@')[0]] = f'{department.strip()}'
                     else:
-                        users[item['mail'].value.lower().strip()] = ''
+                        users[item['mail'].value.lower().strip().split('@')[0]] = ''
                         logger.debug(f'User {item["mail"].value} has empty department or company. Skip.')
 
     except Exception as e:
@@ -79,7 +84,7 @@ def get_ldap_users():
         
     if out_file:
         with open(out_file, "w", encoding="utf-8") as f:
-            f.write("mail;department (company)\n")
+            f.write("alias;department (company)\n")
             for k,v in users.items():
                 f.write(f"{k};{v}\n")
 
@@ -123,14 +128,15 @@ def add_new_deps_to_y360(new_deps):
                 }
         logger.info(f'Adding department {item} to Y360')
         if not dry_run:
-            organization.post_create_department(department_info)
+            result, message = organization.post_create_department(department_info)
+            logger.info(message)
     new_deps = generate_deps_list_from_api()
     return new_deps
 
 def compare_with_y360():    
     users_org = {}
     users_id = {}
-    users_aliases = {}
+    users_contacts = {}
 
     #onprem_users = get_file_users()
     onprem_users = get_ldap_users()
@@ -179,10 +185,14 @@ def compare_with_y360():
 
     deps = add_new_deps_to_y360(diff_set)
 
-    for user in organization.get_all_users():
-        users_org[user['email']] = user['departmentId']
-        users_id[user['email']] = user['id']
-        users_aliases[user['email']] = user['aliases']
+    all_y360_users = organization.get_all_users()
+    for user in all_y360_users:
+        users_org[user['nickname']] = user['departmentId']
+        users_id[user['nickname']] = user['id']
+        users_contacts[user['nickname']] = []
+        for contact in user['contacts']:
+            if contact['type'] == 'email':
+                users_contacts[user['nickname']].append(contact['value'].split('@')[0])
 
     if not users_org:
         logger.info('List of Y360 users is empty. Exit.')
@@ -190,61 +200,29 @@ def compare_with_y360():
     else:
         logger.info(f'Got list of Y360 users. Total count: {len(users_org)}')
 
-    missed_emails = []
     try:
-        for email in users_org.keys():
-            if email in onprem_users: 
-                #print(f"{email} - {onprem_users[email]}")   
-                if len(onprem_users[email].strip()) > 0 :
-                    if onprem_users[email].strip() != deps[users_org[email]]:
-                        #new_deps = (k,v for k,v in deps.items() if v == onprem_users[email].strip())
-                        new_deps_id = list(deps.keys())[list(deps.values()).index(onprem_users[email].strip())]
-                        logger.info(f'Try to change department of {email} user from _ {deps[users_org[email]]} _ to _ {onprem_users[email]} _')
-                        if not dry_run:
-                            organization.patch_user_info(
-                                uid = users_id[email],
-                                user_data={
-                                    "departmentId": new_deps_id,
-                                })
-                else:
-                    if users_org[email] != 1:
-                        logger.info(f'Try to change department of {email} user from _ {deps[users_org[email]]} _ to _ All _')
-                        if not dry_run:
-                            organization.patch_user_info(
-                                    uid = users_id[email],
+        for alias in users_org.keys():
+            for onprem_alias in onprem_users.keys():
+                if alias == onprem_alias or any(contact==onprem_alias for contact in users_contacts[alias]): 
+                    if len(onprem_users[onprem_alias].strip()) > 0 :
+                        if onprem_users[onprem_alias].strip() != deps[users_org[alias]]:
+                            new_deps_id = list(deps.keys())[list(deps.values()).index(onprem_users[onprem_alias].strip())]
+                            logger.info(f'Try to change department of {alias} user from _ {deps[users_org[alias]]} _ to _ {onprem_users[onprem_alias]} _')
+                            if not dry_run:
+                                organization.patch_user_info(
+                                    uid = users_id[alias],
                                     user_data={
-                                        "departmentId": 1,
+                                        "departmentId": new_deps_id,
                                     })
-            else:
-                missed_emails.append(email)
-                
-        if missed_emails:
-            for email in missed_emails:
-                #saveToLog(message=f'Users not found in local catalog: {email}. Start searching in aliases.', status='Info', console=console)
-                domain = email.split('@')[1]
-                for alias in users_aliases[email]:
-                    search_mail = alias + '@' + domain
-                    if search_mail in onprem_users.keys():
-                        logger.info(f'Found user _ alias _ in local catalog: {search_mail}. Start changing department.')
-                        if not (len(onprem_users[search_mail].strip()) == 0 or onprem_users[search_mail].strip() =='[]') :
-                            if onprem_users[search_mail].strip() != deps[users_org[email]]:
-                                new_deps_id = list(deps.keys())[list(deps.values()).index(onprem_users[search_mail].strip())]
-                                logger.info(f'Try to change department of {search_mail} user from _ {deps[users_org[email]]} _ to _ {onprem_users[search_mail]} _')
-                                if not dry_run:
-                                    organization.patch_user_info(
-                                        uid = users_id[email],
+                    else:
+                        if users_org[alias] != 1:
+                            logger.info(f'Try to change department of {alias} user from _ {deps[users_org[alias]]} _ to _ All _')
+                            if not dry_run:
+                                organization.patch_user_info(
+                                        uid = users_id[alias],
                                         user_data={
-                                            "departmentId": new_deps_id,
+                                            "departmentId": 1,
                                         })
-                        else:
-                            if users_org[email] != 1:
-                                logger.info(f'Try to change department of {search_mail} user from _ {deps[users_org[email]]} _ to _ All _')
-                                if not dry_run:
-                                    organization.patch_user_info(
-                                            uid = users_id[email],
-                                            user_data={
-                                                "departmentId": 1,
-                                            })
 
     except Exception as e:
         logger.error(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
