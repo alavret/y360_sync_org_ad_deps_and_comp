@@ -9,6 +9,8 @@ import logging.handlers as handlers
 import sys
 
 LOG_FILE = "sync_deps.log"
+LDAP_PAGE_SIZE = 1000
+
 
 logger = logging.getLogger("sync_deps")
 logger.setLevel(logging.DEBUG)
@@ -51,14 +53,30 @@ def get_ldap_users():
         return {}
             
     users = {}
-    conn.search(ldap_base_dn, ldap_search_filter, search_scope=SUBTREE, attributes=attrib_list)
-    if conn.last_error is not None:
-        logger.error(f'Can not connect to LDAP. Exit.')
-        logger.error(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
-        return {}
+    #conn.search(ldap_base_dn, ldap_search_filter, search_scope=SUBTREE, attributes=attrib_list)
+    # if conn.last_error is not None:
+    #     logger.error(f'Can not connect to LDAP. Exit.')
+    #     logger.error(f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}")
+    #     return {}
 
+    ldap_results = []
+    cookie = None
+    while True:
+        conn.search(ldap_base_dn, ldap_search_filter, search_scope=SUBTREE, attributes=attrib_list, paged_size=LDAP_PAGE_SIZE, paged_cookie=cookie)
+
+        if conn.last_error is not None:
+            logger.error('Can not connect to LDAP. Exit.')
+            logger.error(f"LDAP error: {conn.last_error}")
+            return {}
+        
+        ldap_results.extend(conn.entries)
+        
+        # Check if there is another page
+        cookie = conn.result.get('controls', {}).get('1.2.840.113556.1.4.319', {}).get('value', {}).get('cookie')
+        if not cookie:
+            break
     try:            
-        for item in conn.entries:
+        for item in ldap_results:
             if item['mail'].value is not None:
                 if len(item['mail'].value.strip()) > 0:
                     department = ''
